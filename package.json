@@ -1,0 +1,13 @@
+{
+  "name": "squads-demo",
+  "version": "1.0.0",
+  "description": "Squads Protocol Demo",
+  "dependencies": {
+    "@solana/web3.js": "^1.73.0",
+    "@sqds/multisig": "^2.1.3"
+  },
+  "devDependencies": {
+    "typescript": "^4.9.4",
+    "@types/node": "^18.11.18"
+  }
+}

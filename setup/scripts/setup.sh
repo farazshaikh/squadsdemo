@@ -10,6 +10,28 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Cleanup function
+cleanup() {
+    print_status "Cleaning up..."
+    
+    # Kill validator if running
+    if [ -f "/tmp/solana-validator-pid" ]; then
+        VALIDATOR_PID=$(cat /tmp/solana-validator-pid)
+        kill "$VALIDATOR_PID" 2>/dev/null || true
+        rm /tmp/solana-validator-pid
+    fi
+    
+    # Remove validator directory
+    if [ -f "/tmp/solana-validator-dir" ]; then
+        VALIDATOR_DIR=$(cat /tmp/solana-validator-dir)
+        rm -rf "$VALIDATOR_DIR"
+        rm /tmp/solana-validator-dir
+    fi
+}
+
+# Set up trap to call cleanup function on script exit
+trap cleanup EXIT
+
 # Print with color
 print_status() {
     echo -e "${GREEN}==>${NC} $1"
@@ -72,14 +94,15 @@ check_dependencies() {
 setup_validator() {
     print_status "Setting up local Solana validator..."
     
-    # Create test validator directory
-    mkdir -p test-validator
-    cd test-validator
+    # Create temporary directory for validator
+    VALIDATOR_DIR=$(mktemp -d -t solana-validator-XXXXXXXXXX)
+    print_status "Using temporary directory: $VALIDATOR_DIR"
     
     # Kill any running validator
     pkill -f solana-test-validator || true
     
     # Start validator in background with Squads program and config accounts cloned from mainnet
+    cd "$VALIDATOR_DIR"
     solana-test-validator \
         --url m \
         --clone-upgradeable-program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf \
@@ -89,11 +112,18 @@ setup_validator() {
         --reset &
     VALIDATOR_PID=$!
     
+    # Store validator directory and PID for cleanup
+    echo "$VALIDATOR_DIR" > /tmp/solana-validator-dir
+    echo "$VALIDATOR_PID" > /tmp/solana-validator-pid
+    
     # Wait for validator to start
     sleep 5
     
     print_status "Local validator started with PID: $VALIDATOR_PID"
-    cd ..
+    print_status "Validator data directory: $VALIDATOR_DIR"
+    
+    # Return to original directory
+    cd - > /dev/null
 }
 
 # Create test wallets
