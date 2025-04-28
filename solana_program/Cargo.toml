@@ -1,0 +1,11 @@
+[package]
+name = "solana-counter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+solana-program = "=1.14.18"
+borsh = "0.9.3"
+
+[lib]
+crate-type = ["cdylib", "lib"] 

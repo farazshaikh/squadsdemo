@@ -22,7 +22,7 @@ pub fn process_instruction(
 
 ```bash
 # Build the program
-cargo build-bpf
+cargo build-sbf
 
 # Generate program keypair
 solana-keygen new -o program-keypair.json
