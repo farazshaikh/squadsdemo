@@ -84,6 +84,7 @@ in pkgs.mkShell {
     pkg-config
     openssl
     jq # For JSON processing in scripts
+    expect # For handling interactive prompts
 
     # Git and basic utils
     git
@@ -304,30 +305,16 @@ in pkgs.mkShell {
       echo ""
 
       # Create the multisig with all members having full permissions (7)
-      output=$(squads-multisig-cli multisig-create \
+      squads-multisig-cli multisig-create \
         --keypair wallets/member1.json \
         --threshold 2 \
         -m "$MEMBER1,7" \
         -m "$MEMBER2,7" \
         -m "$MEMBER3,7" \
-        --rpc-url http://127.0.0.1:8899)
+        --rpc-url http://127.0.0.1:8899
 
-      # Store the multisig address for future use
-      if [ $? -eq 0 ]; then
-        # Extract the multisig address from the output
-        MULTISIG_ADDRESS=$(echo "$output" | grep -oP "Multisig: \K[A-Za-z0-9]{32,}")
-        if [ ! -z "$MULTISIG_ADDRESS" ]; then
-          echo "$MULTISIG_ADDRESS" > .multisig_address
-          echo "Multisig address saved to .multisig_address: $MULTISIG_ADDRESS"
-        else
-          echo "Error: Could not extract multisig address from output"
-          echo "Raw output was:"
-          echo "$output"
-        fi
-      else
-        echo "Error creating multisig"
-        echo "$output"
-      fi
+      echo ""
+      echo "Please copy the multisig address from above and save it to .multisig_address"
     }
 
     # Set environment variables
