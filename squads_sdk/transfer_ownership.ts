@@ -71,7 +71,7 @@ async function main() {
     const programId = new PublicKey(programKeypairData.slice(32, 64));
 
     // Known ProgramData address from solana program show
-    const programDataAddress = new PublicKey("4Cwm9SAvzfFgC7E2F6mm6QgRBn7HydiGtvChq9fPbNDh");
+    const programDataAddress = new PublicKey("5Fij1ULp3QZNymKient2dDzm2GcbJh9p18FokYQJcMyW");
 
     console.log("\n--- Initial State ---");
     console.log("Program ID:", programId.toBase58());
