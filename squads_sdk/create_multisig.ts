@@ -6,26 +6,30 @@ import {
   PublicKey,
 } from "@solana/web3.js";
 import * as fs from 'fs';
+import * as path from 'path';
 
 const { Permission, Permissions } = multisig.types;
 
 // Use local validator connection
 const connection = new Connection("http://127.0.0.1:8899", "confirmed");
 
+// Helper to get wallet path in parent directory
+const getWalletPath = (filename: string) => path.join('..', 'wallets', filename);
+
 async function main() {
   try {
     // Load member wallets and create key
     const member1 = Keypair.fromSecretKey(
-      new Uint8Array(JSON.parse(fs.readFileSync('wallets/member1.json', 'utf-8')))
+      new Uint8Array(JSON.parse(fs.readFileSync(getWalletPath('member1.json'), 'utf-8')))
     );
     const member2 = Keypair.fromSecretKey(
-      new Uint8Array(JSON.parse(fs.readFileSync('wallets/member2.json', 'utf-8')))
+      new Uint8Array(JSON.parse(fs.readFileSync(getWalletPath('member2.json'), 'utf-8')))
     );
     const member3 = Keypair.fromSecretKey(
-      new Uint8Array(JSON.parse(fs.readFileSync('wallets/member3.json', 'utf-8')))
+      new Uint8Array(JSON.parse(fs.readFileSync(getWalletPath('member3.json'), 'utf-8')))
     );
     const createKey = Keypair.fromSecretKey(
-      new Uint8Array(JSON.parse(fs.readFileSync('wallets/create_key.json', 'utf-8')))
+      new Uint8Array(JSON.parse(fs.readFileSync(getWalletPath('create_key.json'), 'utf-8')))
     );
 
     // Derive the multisig PDA
@@ -80,8 +84,8 @@ async function main() {
     console.log("Transaction signature:", signature);
     console.log("Multisig address:", multisigPda.toBase58());
 
-    // Save multisig address
-    fs.writeFileSync('.multisig_address', multisigPda.toBase58());
+    // Save multisig address in parent directory
+    fs.writeFileSync(path.join('..', '.multisig_address'), multisigPda.toBase58());
 
   } catch (error) {
     console.error("Error creating multisig:", error);

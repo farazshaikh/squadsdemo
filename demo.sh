@@ -6,6 +6,9 @@
 
 set -euxo pipefail
 
+# Source the demo functions
+source demo-functions
+
 # This script sets up a local Solana validator, creates demo wallets, deploys a program, and transfers ownership to a multisig.
 # Ensure the script is run from the root of the project
 # and that the necessary directories and files exist.

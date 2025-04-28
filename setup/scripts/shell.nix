@@ -6,119 +6,27 @@ let
   solanaVersion = "1.18.0";
   nodeVersion = "20.x";
 
-  # Custom derivation for Solana CLI
-  solana = pkgs.stdenv.mkDerivation {
-    name = "solana-cli";
-    version = solanaVersion;
+  # Create the demo functions script that will be available in PATH
+  demoScript = pkgs.writeScriptBin "demo-functions" ''
+    #!/usr/bin/env bash
 
-    src = pkgs.fetchurl {
-      url =
-        "https://github.com/solana-labs/solana/releases/download/v${solanaVersion}/solana-release-x86_64-unknown-linux-gnu.tar.bz2";
-      sha256 = ""; # Add SHA256 of the download
-    };
-
-    buildInputs = with pkgs; [ autoPatchelfHook openssl zlib ];
-
-    installPhase = ''
-      mkdir -p $out/bin
-      cp -r bin/* $out/bin/
-    '';
-  };
-
-  # TypeScript project setup
-  tsProjectSetup = pkgs.writeTextFile {
-    name = "package.json";
-    text = ''
-      {
-        "name": "squads-demo",
-        "version": "1.0.0",
-        "description": "Squads Protocol Demo",
-        "dependencies": {
-          "@solana/web3.js": "^1.87.6",
-          "@sqds/multisig": "^2.1.3"
-        },
-        "devDependencies": {
-          "typescript": "^5.3.3",
-          "@types/node": "^20.10.0"
-        }
-      }
-    '';
-  };
-
-  tsConfig = pkgs.writeTextFile {
-    name = "tsconfig.json";
-    text = ''
-      {
-        "compilerOptions": {
-          "module": "commonjs",
-          "target": "es2022",
-          "esModuleInterop": true,
-          "resolveJsonModule": true,
-          "moduleResolution": "node",
-          "strict": true,
-          "skipLibCheck": true
-        }
-      }
-    '';
-  };
-
-in pkgs.mkShell {
-  buildInputs = with pkgs; [
-    # Rust toolchain for Solana program development
-    rustc
-    cargo
-    rustfmt
-    clippy
-    rust-analyzer
-    pkg-config
-    libudev-zero
-
-    # Node.js environment for Squads SDK
-    nodejs_20
-    nodePackages_latest.npm
-    nodePackages_latest.typescript
-    nodePackages_latest.ts-node
-    nodePackages_latest.yarn
-
-    # Development tools
-    pkg-config
-    openssl
-    jq # For JSON processing in scripts
-    expect # For handling interactive prompts
-
-    # Git and basic utils
-    git
-    curl
-    wget
-  ];
-
-  # Shell hook for environment setup
-  shellHook = ''
-    # Configure npm to use HTTPS
-    npm config set registry https://registry.npmjs.org/
-
-    # Initialize TypeScript environment if not already set up
-    if [ ! -f "package.json" ]; then
-      echo "Initializing TypeScript environment..."
-      cp ${tsProjectSetup} package.json
-      cp ${tsConfig} tsconfig.json
-      npm install
-    fi
-
-    # Create project structure
-    init_demo_structure() {
-      echo "Creating demo project structure..."
-      mkdir -p wallets
-      mkdir -p .anchor
-      mkdir -p target/deploy
-      mkdir -p target/idl
-      mkdir -p setup/scripts
+    # Helper function to run commands in a directory and return
+    run_in_dir() {
+      local dir=$1
+      shift
+      pushd "$dir" >/dev/null || return 1
+      "$@"
+      local result=$?
+      popd >/dev/null || return 1
+      return $result
     }
 
     # Create demo wallets
     create_demo_wallets() {
       echo "Creating demo wallets..."
-
+      # Create wallets directory if it doesn't exist
+      mkdir -p wallets
+      
       # Create authority wallet (for program deployment)
       if [ ! -f "wallets/authority.json" ]; then
         solana-keygen new --no-bip39-passphrase -o wallets/authority.json
@@ -285,7 +193,7 @@ in pkgs.mkShell {
       done
 
       echo "Creating multisig using Squads TypeScript SDK..."
-      ts-node squads_sdk/create_multisig.ts
+      run_in_dir squads_sdk ts-node create_multisig.ts
     }
 
     # Function to verify multisig address
@@ -301,19 +209,97 @@ in pkgs.mkShell {
       fi
 
       echo "Verifying multisig address using Squads TypeScript SDK..."
-      ts-node squads_sdk/verify_multisig.ts
+      run_in_dir squads_sdk ts-node verify_multisig.ts
     }
+
+    # Export all functions so they're available when sourced
+    export -f run_in_dir
+    export -f create_demo_wallets
+    export -f list_demo_wallets
+    export -f fund_demo_wallets
+    export -f stop_validator
+    export -f start_validator
+    export -f validator_status
+    export -f validator_logs
+    export -f create_multisig
+    export -f verify_multisig
+
+    # Print usage if script is run directly
+    if [[ "$0" == "$BASH_SOURCE" ]]; then
+      echo "This script is meant to be sourced to get access to demo functions."
+      echo "Usage: source $(basename "$0")"
+      echo ""
+      echo "Available functions:"
+      echo "Demo setup:"
+      echo "  create_demo_wallets  - Create authority and member wallets"
+      echo "  list_demo_wallets    - Show all demo wallets and balances"
+      echo "  fund_demo_wallets    - Airdrop SOL to all demo wallets"
+      echo "  create_multisig      - Create 2/3 multisig using TypeScript SDK"
+      echo "  verify_multisig      - Verify multisig address using TypeScript SDK"
+      echo ""
+      echo "Validator management:"
+      echo "  start_validator      - Start Solana validator with Squads program"
+      echo "  stop_validator       - Stop running validator"
+      echo "  validator_status     - Check validator status"
+      echo "  validator_logs       - Show validator logs (tail -f)"
+    fi
+  '';
+
+in pkgs.mkShell {
+  buildInputs = with pkgs; [
+    # Demo script
+    demoScript
+
+    # Rust toolchain for Solana program development
+    rustc
+    cargo
+    rustfmt
+    clippy
+    rust-analyzer
+    pkg-config
+    libudev-zero
+
+    # Node.js environment for Squads SDK
+    nodejs_20
+    nodePackages_latest.npm
+    nodePackages_latest.typescript
+    nodePackages_latest.ts-node
+    nodePackages_latest.yarn
+
+    # Development tools
+    pkg-config
+    openssl
+    jq # For JSON processing in scripts
+    expect # For handling interactive prompts
+
+    # Git and basic utils
+    git
+    curl
+    wget
+  ];
+
+  shellHook = ''
+    # Configure npm to use HTTPS
+    npm config set registry https://registry.npmjs.org/
+
+    # Install squads_sdk dependencies if needed
+    if [ -f "squads_sdk/package.json" ] && [ ! -d "squads_sdk/node_modules" ]; then
+      echo "Installing Squads SDK dependencies..."
+      run_in_dir squads_sdk npm install
+    fi
+
+    # Source our demo functions
+    source demo-functions
 
     # Set environment variables
     export PATH=$PATH:$HOME/.local/share/solana/install/active_release/bin
     export RUST_LOG=info
-    export NODE_TLS_REJECT_UNAUTHORIZED=1 # Ensure Node.js enforces TLS
+    export NODE_TLS_REJECT_UNAUTHORIZED=1
 
     # Print available commands
     echo ""
     echo "Available commands:"
     echo "Demo setup:"
-    echo "  init_demo_structure  - Create project directories"
     echo "  create_demo_wallets  - Create authority and member wallets"
     echo "  list_demo_wallets    - Show all demo wallets and balances"
     echo "  fund_demo_wallets    - Airdrop SOL to all demo wallets"
