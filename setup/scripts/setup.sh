@@ -79,8 +79,14 @@ setup_validator() {
     # Kill any running validator
     pkill -f solana-test-validator || true
     
-    # Start validator in background
-    solana-test-validator --quiet --reset &
+    # Start validator in background with Squads program and config accounts cloned from mainnet
+    solana-test-validator \
+        --url m \
+        --clone-upgradeable-program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf \
+        -c BSTq9w3kZwNwpBXJEvTZz2G9ZTNyKBvoSeXMvwb4cNZr \
+        -c Fy3YMJCvwbAXUgUM5b91ucUVA3jYzwWLHL3MwBqKsh8n \
+        --quiet \
+        --reset &
     VALIDATOR_PID=$!
     
     # Wait for validator to start

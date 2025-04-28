@@ -60,10 +60,16 @@ Each wallet is airdropped 2 SOL on the local network.
 
 ## Local Validator
 
-The local validator runs with default settings:
+The local validator runs with the following configuration:
 - RPC port: 8899
 - Websocket port: 8900
 - Reset on startup
+- Clones the following from mainnet:
+  - Squads V4 Program (`SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf`)
+  - Program Config Account (`BSTq9w3kZwNwpBXJEvTZz2G9ZTNyKBvoSeXMvwb4cNZr`)
+  - Additional Config Account (`Fy3YMJCvwbAXUgUM5b91ucUVA3jYzwWLHL3MwBqKsh8n`)
+
+These cloned accounts ensure that the local validator has all necessary program data to run Squads operations.
 
 ## Network Configuration
 

@@ -61,6 +61,12 @@ in pkgs.mkShell {
       sh -c "$(curl -sSfL https://release.solana.com/v${solanaVersion}/install)"
     fi
 
+    # Install Squads CLI if not present
+    if ! command -v squads-multisig-cli &> /dev/null; then
+      echo "Installing Squads CLI..."
+      cargo install squads-multisig-cli
+    fi
+
     # Print versions
     echo "Environment versions:"
     rustc --version
@@ -68,6 +74,7 @@ in pkgs.mkShell {
     node --version
     npm --version
     solana --version
+    squads-multisig-cli --version || echo "Squads CLI version check failed"
 
     # Create local directories
     mkdir -p test-validator wallets
