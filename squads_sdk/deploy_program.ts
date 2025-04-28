@@ -10,6 +10,7 @@ import {
   TransactionInstruction,
   SYSVAR_RENT_PUBKEY,
   SYSVAR_CLOCK_PUBKEY,
+  VersionedTransactionResponse,
 } from "@solana/web3.js";
 import * as fs from 'fs';
 import BN from 'bn.js';
@@ -22,6 +23,95 @@ const connection = new Connection("http://127.0.0.1:8899", {
 
 // BPFLoader program ID
 const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
+
+async function createAndConfirmTransaction(
+  connection: Connection,
+  member1: Keypair,
+  member2: Keypair,
+  multisigPda: PublicKey,
+  transactionIndex: bigint,
+  instructions: TransactionInstruction[],
+  memo: string,
+  ephemeralSigners: number = 0
+) {
+  const message = new TransactionMessage({
+    payerKey: multisigPda,
+    recentBlockhash: (await connection.getLatestBlockhash()).blockhash,
+    instructions,
+  });
+
+  // Create the transaction proposal
+  const createTxSignature = await multisig.rpc.vaultTransactionCreate({
+    connection,
+    feePayer: member1,
+    multisigPda,
+    transactionIndex,
+    creator: member1.publicKey,
+    vaultIndex: 0,
+    ephemeralSigners,
+    transactionMessage: message,
+    memo,
+    sendOptions: { skipPreflight: true },
+  });
+
+  await connection.confirmTransaction(createTxSignature);
+  console.log("Transaction created:", createTxSignature);
+
+  // Create proposal
+  const proposalSignature = await multisig.rpc.proposalCreate({
+    connection,
+    feePayer: member1,
+    multisigPda,
+    transactionIndex,
+    creator: member1,
+    sendOptions: { skipPreflight: true },
+  });
+
+  await connection.confirmTransaction(proposalSignature);
+  console.log("Proposal created:", proposalSignature);
+
+  // First approval (member1)
+  const approval1 = await multisig.rpc.proposalApprove({
+    connection,
+    feePayer: member1,
+    multisigPda,
+    transactionIndex,
+    member: member1,
+    sendOptions: { skipPreflight: true },
+  });
+
+  await connection.confirmTransaction(approval1);
+  console.log("Member 1 approved:", approval1);
+
+  // Second approval (member2)
+  const approval2 = await multisig.rpc.proposalApprove({
+    connection,
+    feePayer: member1,
+    multisigPda,
+    transactionIndex,
+    member: member2,
+    sendOptions: { skipPreflight: true },
+  });
+
+  await connection.confirmTransaction(approval2);
+  console.log("Member 2 approved:", approval2);
+
+  console.log("Executing transaction...");
+
+  // Execute the transaction
+  const executeTxSignature = await multisig.rpc.vaultTransactionExecute({
+    connection,
+    feePayer: member1,
+    multisigPda,
+    transactionIndex,
+    member: member1.publicKey,
+    signers: [member1],
+    sendOptions: { skipPreflight: true },
+  });
+
+  await connection.confirmTransaction(executeTxSignature);
+  console.log("Transaction executed:", executeTxSignature);
+}
 
 async function main() {
   try {
@@ -47,7 +137,7 @@ async function main() {
     console.log("Using multisig address:", multisigPda.toBase58());
 
     // Read the program binary
-    const programData = fs.readFileSync('target/deploy/solana_counter.so');
+    const programData = fs.readFileSync('solana_program/target/deploy/solana_counter.so');
     console.log("Program size:", programData.length, "bytes");
     
     // Create program and buffer accounts
@@ -61,150 +151,109 @@ async function main() {
 
     console.log("Program ID will be:", programKeypair.publicKey.toBase58());
 
-    // Create all necessary instructions
-    const createProgramIx = SystemProgram.createAccount({
-      fromPubkey: multisigPda,
-      newAccountPubkey: programKeypair.publicKey,
-      lamports: programRent,
-      space: programDataSize,
-      programId: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
-    });
-
-    const createBufferIx = SystemProgram.createAccount({
-      fromPubkey: multisigPda,
-      newAccountPubkey: bufferAccount.publicKey,
-      lamports: bufferRent,
-      space: programDataSize,
-      programId: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
-    });
-
-    // Write program data to buffer
-    const chunkSize = 800; // Solana has instruction size limits
-    const writeIxs = [];
-    
-    for (let i = 0; i < programData.length; i += chunkSize) {
-      const chunk = programData.slice(i, i + chunkSize);
-      writeIxs.push(
-        new TransactionInstruction({
-          programId: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
-          keys: [
-            { pubkey: bufferAccount.publicKey, isSigner: true, isWritable: true },
-          ],
-          data: Buffer.concat([
-            Buffer.from([0x01]), // Write instruction
-            new BN(i).toArrayLike(Buffer, "le", 4), // Offset
-            Buffer.from(chunk),
-          ]),
-        })
-      );
-    }
-
-    // Deploy instruction
-    const deployIx = new TransactionInstruction({
-      programId: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
-      keys: [
-        { pubkey: bufferAccount.publicKey, isSigner: true, isWritable: true },
-        { pubkey: programKeypair.publicKey, isSigner: true, isWritable: true },
-        { pubkey: multisigPda, isSigner: true, isWritable: false },
-        { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-        { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
-      ],
-      data: Buffer.from([0x03]), // Deploy instruction
-    });
-
-    // Create the transaction message with all instructions
-    const message = new TransactionMessage({
-      payerKey: multisigPda,
-      recentBlockhash: (await connection.getLatestBlockhash()).blockhash,
-      instructions: [
-        createProgramIx,
-        createBufferIx,
-        ...writeIxs,
-        deployIx,
-      ],
-    });
-
     // Get current transaction index
     const multisigAccount = await multisig.accounts.Multisig.fromAccountAddress(
       connection,
       multisigPda
     );
-    const currentIndex = Number(multisigAccount.transactionIndex);
-    const newTransactionIndex = BigInt(currentIndex + 1);
+    let currentIndex = Number(multisigAccount.transactionIndex);
 
-    console.log("Creating transaction proposal...");
-
-    // Create the transaction proposal
-    const createTxSignature = await multisig.rpc.vaultTransactionCreate({
+    // Create program account
+    await createAndConfirmTransaction(
       connection,
-      feePayer: member1,
+      member1,
+      member2,
       multisigPda,
-      transactionIndex: newTransactionIndex,
-      creator: member1.publicKey,
-      vaultIndex: 0,
-      ephemeralSigners: 2, // For program and buffer accounts
-      transactionMessage: message,
-      memo: "Deploy Solana Counter Program",
-      sendOptions: { skipPreflight: true },
-    });
+      BigInt(currentIndex + 1),
+      [
+        SystemProgram.createAccount({
+          fromPubkey: multisigPda,
+          newAccountPubkey: programKeypair.publicKey,
+          lamports: programRent,
+          space: programDataSize,
+          programId: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+        })
+      ],
+      "Create program account",
+      1
+    );
+    currentIndex++;
 
-    await connection.confirmTransaction(createTxSignature);
-    console.log("Transaction created:", createTxSignature);
-
-    // Create proposal
-    const proposalSignature = await multisig.rpc.proposalCreate({
+    // Create buffer account
+    await createAndConfirmTransaction(
       connection,
-      feePayer: member1,
+      member1,
+      member2,
       multisigPda,
-      transactionIndex: newTransactionIndex,
-      creator: member1,
-      sendOptions: { skipPreflight: true },
-    });
+      BigInt(currentIndex + 1),
+      [
+        SystemProgram.createAccount({
+          fromPubkey: multisigPda,
+          newAccountPubkey: bufferAccount.publicKey,
+          lamports: bufferRent,
+          space: programDataSize,
+          programId: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+        })
+      ],
+      "Create buffer account",
+      1
+    );
+    currentIndex++;
 
-    await connection.confirmTransaction(proposalSignature);
-    console.log("Proposal created:", proposalSignature);
+    // Write program data to buffer in chunks
+    const chunkSize = 800; // Solana has instruction size limits
+    for (let i = 0; i < programData.length; i += chunkSize) {
+      const chunk = programData.slice(i, Math.min(i + chunkSize, programData.length));
+      await createAndConfirmTransaction(
+        connection,
+        member1,
+        member2,
+        multisigPda,
+        BigInt(currentIndex + 1),
+        [
+          new TransactionInstruction({
+            programId: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+            keys: [
+              { pubkey: bufferAccount.publicKey, isSigner: true, isWritable: true },
+            ],
+            data: Buffer.concat([
+              Buffer.from([0x01]), // Write instruction
+              new BN(i).toArrayLike(Buffer, "le", 4), // Offset
+              Buffer.from(chunk),
+            ]),
+          })
+        ],
+        `Write program chunk ${i}/${programData.length}`,
+        1
+      );
+      currentIndex++;
+      console.log(`Wrote chunk ${i}/${programData.length}`);
+    }
 
-    // First approval (member1)
-    const approval1 = await multisig.rpc.proposalApprove({
+    // Deploy program
+    await createAndConfirmTransaction(
       connection,
-      feePayer: member1,
+      member1,
+      member2,
       multisigPda,
-      transactionIndex: newTransactionIndex,
-      member: member1,
-      sendOptions: { skipPreflight: true },
-    });
+      BigInt(currentIndex + 1),
+      [
+        new TransactionInstruction({
+          programId: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+          keys: [
+            { pubkey: bufferAccount.publicKey, isSigner: true, isWritable: true },
+            { pubkey: programKeypair.publicKey, isSigner: true, isWritable: true },
+            { pubkey: multisigPda, isSigner: true, isWritable: false },
+            { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+            { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
+          ],
+          data: Buffer.from([0x03]), // Deploy instruction
+        })
+      ],
+      "Deploy program",
+      2
+    );
 
-    await connection.confirmTransaction(approval1);
-    console.log("Member 1 approved:", approval1);
-
-    // Second approval (member2)
-    const approval2 = await multisig.rpc.proposalApprove({
-      connection,
-      feePayer: member1,
-      multisigPda,
-      transactionIndex: newTransactionIndex,
-      member: member2,
-      sendOptions: { skipPreflight: true },
-    });
-
-    await connection.confirmTransaction(approval2);
-    console.log("Member 2 approved:", approval2);
-
-    console.log("Executing transaction...");
-
-    // Execute the transaction
-    const executeTxSignature = await multisig.rpc.vaultTransactionExecute({
-      connection,
-      feePayer: member1,
-      multisigPda,
-      transactionIndex: newTransactionIndex,
-      member: member1.publicKey,
-      signers: [member1, programKeypair, bufferAccount],
-      sendOptions: { skipPreflight: true },
-    });
-
-    await connection.confirmTransaction(executeTxSignature);
-    console.log("Transaction executed:", executeTxSignature);
     console.log("Program deployed through multisig at:", programKeypair.publicKey.toBase58());
 
   } catch (error) {
