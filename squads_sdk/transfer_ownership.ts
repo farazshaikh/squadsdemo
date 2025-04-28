@@ -86,20 +86,6 @@ async function main() {
       throw new Error("Initial authority doesn't match expected owner");
     }
 
-    // Create the SetUpgradeAuthority instruction
-    const instruction = new TransactionInstruction({
-      programId: new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"),
-      keys: [
-        { pubkey: programDataAddress, isSigner: false, isWritable: true },
-        { pubkey: member1.publicKey, isSigner: true, isWritable: false },
-        { pubkey: multisigPDA, isSigner: false, isWritable: false }
-      ],
-      data: Buffer.concat([
-        Buffer.from([4]), // SetAuthority instruction
-        multisigPDA.toBuffer() // New authority
-      ])
-    });
-
     // Get the vault PDA for the transaction
     const [vaultPda] = multisig.getVaultPda({
       multisigPda: multisigPDA,
@@ -107,9 +93,24 @@ async function main() {
     });
     console.log("Vault PDA:", vaultPda.toBase58());
 
+    // Create the SetUpgradeAuthority instruction
+    const instruction = new TransactionInstruction({
+      programId: new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"),
+      keys: [
+        { pubkey: programDataAddress, isSigner: false, isWritable: true },
+        { pubkey: member1.publicKey, isSigner: true, isWritable: false }, // Current authority must sign
+        { pubkey: multisigPDA, isSigner: false, isWritable: false }  // New authority
+      ],
+      data: Buffer.concat([
+        Buffer.from([4]), // SetAuthority instruction
+        Buffer.alloc(4), // Padding for alignment
+        multisigPDA.toBuffer() // New authority
+      ])
+    });
+
     // Create the transaction message
     const transferMessage = new TransactionMessage({
-      payerKey: vaultPda,
+      payerKey: member1.publicKey, // member1 pays and signs
       recentBlockhash: (await connection.getLatestBlockhash()).blockhash,
       instructions: [instruction]
     });
