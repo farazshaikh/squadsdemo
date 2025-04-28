@@ -38,4 +38,5 @@ test-ledger/
 # Build outputs
 dist/
 build/
-lib/ 
+lib/
+.multisig_address
