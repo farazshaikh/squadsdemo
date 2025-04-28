@@ -118,7 +118,7 @@ in pkgs.mkShell {
     # Create demo wallets
     create_demo_wallets() {
       echo "Creating demo wallets..."
-      
+
       # Create authority wallet (for program deployment)
       if [ ! -f "wallets/authority.json" ]; then
         solana-keygen new --no-bip39-passphrase -o wallets/authority.json
@@ -137,6 +137,12 @@ in pkgs.mkShell {
       if [ ! -f "wallets/upgrade_authority.json" ]; then
         solana-keygen new --no-bip39-passphrase -o wallets/upgrade_authority.json
         echo "Created upgrade authority wallet: $(solana-keygen pubkey wallets/upgrade_authority.json)"
+      fi
+
+      # Create multisig create key
+      if [ ! -f "wallets/create_key.json" ]; then
+        solana-keygen new --no-bip39-passphrase -o wallets/create_key.json
+        echo "Created multisig create key: $(solana-keygen pubkey wallets/create_key.json)"
       fi
     }
 
@@ -212,10 +218,10 @@ in pkgs.mkShell {
       echo "Starting Solana validator..."
       # Create a temporary directory for validator data
       VALIDATOR_DIR=$(mktemp -d /tmp/solana-test-validator.XXXXXX)
-      
+
       # Configure Solana to use our authority wallet
       solana config set --keypair wallets/authority.json --url http://127.0.0.1:8899
-      
+
       # Start validator with Squads program and config accounts cloned from mainnet
       solana-test-validator \
         --reset \
@@ -225,11 +231,11 @@ in pkgs.mkShell {
         --clone Fy3YMJCvwbAXUgUM5b91ucUVA3jYzwWLHL3MwBqKsh8n \
         --ledger "$VALIDATOR_DIR" \
         > /tmp/validator.log 2>&1 &
-      
+
       # Store PID and directory
       echo $! > /tmp/solana-validator.pid
       echo "$VALIDATOR_DIR" > /tmp/solana-validator-dir
-      
+
       # Wait for validator to start
       sleep 5
       echo "Solana validator started with data directory: $VALIDATOR_DIR"
@@ -262,19 +268,7 @@ in pkgs.mkShell {
       fi
     }
 
-    # Function to derive multisig address from create key
-    derive_multisig_address() {
-      # Check if we have the authority wallet
-      if [ ! -f "wallets/authority.json" ]; then
-        echo "Error: Authority wallet not found. Run create_demo_wallets first."
-        return 1
-      fi
-
-      # Run the TypeScript script
-      ts-node setup/scripts/derive_multisig.ts
-    }
-
-    # Function to create multisig from demo wallets
+    # Function to create multisig using TypeScript SDK
     create_multisig() {
       # Check if validator is running
       if ! solana config get | grep -q "http://127.0.0.1:8899"; then
@@ -283,38 +277,31 @@ in pkgs.mkShell {
       fi
 
       # Check if we have the required wallets
-      for i in {1..3}; do
-        if [ ! -f "wallets/member$i.json" ]; then
-          echo "Error: member$i.json not found. Run 'create_demo_wallets' first"
+      for wallet in member{1,2,3}.json create_key.json; do
+        if [ ! -f "wallets/$wallet" ]; then
+          echo "Error: $wallet not found. Run 'create_demo_wallets' first"
           return 1
         fi
       done
 
-      echo "Creating 2/3 multisig with demo wallets..."
-      
-      # Get member public keys
-      MEMBER1=$(solana-keygen pubkey wallets/member1.json)
-      MEMBER2=$(solana-keygen pubkey wallets/member2.json)
-      MEMBER3=$(solana-keygen pubkey wallets/member3.json)
+      echo "Creating multisig using Squads TypeScript SDK..."
+      ts-node squads_sdk/create_multisig.ts
+    }
 
-      echo "Members:"
-      echo "1: $MEMBER1 (All permissions)"
-      echo "2: $MEMBER2 (All permissions)"
-      echo "3: $MEMBER3 (All permissions)"
-      echo "Threshold: 2"
-      echo ""
+    # Function to verify multisig address
+    verify_multisig() {
+      if [ ! -f ".multisig_address" ]; then
+        echo "Error: No multisig address found. Run 'create_multisig' first"
+        return 1
+      fi
 
-      # Create the multisig with all members having full permissions (7)
-      squads-multisig-cli multisig-create \
-        --keypair wallets/member1.json \
-        --threshold 2 \
-        -m "$MEMBER1,7" \
-        -m "$MEMBER2,7" \
-        -m "$MEMBER3,7" \
-        --rpc-url http://127.0.0.1:8899
+      if [ ! -f "wallets/create_key.json" ]; then
+        echo "Error: create_key.json not found. Run 'create_demo_wallets' first"
+        return 1
+      fi
 
-      echo ""
-      echo "Please copy the multisig address from above and save it to .multisig_address"
+      echo "Verifying multisig address using Squads TypeScript SDK..."
+      ts-node squads_sdk/verify_multisig.ts
     }
 
     # Set environment variables
@@ -330,8 +317,8 @@ in pkgs.mkShell {
     echo "  create_demo_wallets  - Create authority and member wallets"
     echo "  list_demo_wallets    - Show all demo wallets and balances"
     echo "  fund_demo_wallets    - Airdrop SOL to all demo wallets"
-    echo "  create_multisig      - Create 2/3 multisig with demo wallets"
-    echo "  derive_multisig_address - Derive and verify multisig address"
+    echo "  create_multisig      - Create 2/3 multisig using TypeScript SDK"
+    echo "  verify_multisig      - Verify multisig address using TypeScript SDK"
     echo ""
     echo "Validator management:"
     echo "  start_validator      - Start Solana validator with Squads program"
