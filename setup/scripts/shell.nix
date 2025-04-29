@@ -26,7 +26,13 @@ let
       echo "Creating demo wallets..."
       # Create wallets directory if it doesn't exist
       mkdir -p wallets
-      
+
+      # Remove existing keypair file if it exists
+      if [ ! -f "./wallets/solana_counter-keypair.json" ]; then
+        solana-keygen new --no-bip39-passphrase -o ./wallets/solana_counter-keypair.json
+        echo "Created solana_counter keypair: $(solana-keygen pubkey ./wallets/solana_counter-keypair.json)"
+      fi
+
       # Create authority wallet (for program deployment)
       if [ ! -f "wallets/authority.json" ]; then
         solana-keygen new --no-bip39-passphrase -o wallets/authority.json
