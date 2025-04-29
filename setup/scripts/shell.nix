@@ -5,6 +5,7 @@ let
   # Pin versions
   solanaVersion = "1.17.7";
   nodeVersion = "20.x";
+  rustVersion = "1.86.0";
 
   # Create the demo functions script that will be available in PATH
   demoScript = pkgs.writeScriptBin "demo-functions" ''
@@ -293,6 +294,35 @@ let
     fi
   '';
 
+  # Create a script to setup Rust toolchain
+  setupRustScript = pkgs.writeScriptBin "setup-rust" ''
+    #!/usr/bin/env bash
+
+    # Install rustup if not present
+    if ! command -v rustup &> /dev/null; then
+      echo "Installing rustup..."
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    fi
+
+    # Add cargo bin to PATH temporarily if not already there
+    export PATH=$HOME/.cargo/bin:$PATH
+
+    # Install specific rust version
+    rustup toolchain install ${rustVersion}
+    rustup default ${rustVersion}
+
+    # Install Solana toolchain if not present
+    if ! rustup toolchain list | grep -q "solana"; then
+      echo "Installing Solana toolchain..."
+      rustup toolchain install solana
+    fi
+
+    # Install required components
+    rustup component add rustfmt
+    rustup component add clippy
+    rustup component add rust-src
+  '';
+
   # Create a script to install Solana CLI tools
   installSolanaScript = pkgs.writeScriptBin "install-solana" ''
     #!/usr/bin/env bash
@@ -306,6 +336,7 @@ in pkgs.mkShell {
   buildInputs = with pkgs; [
     # Demo script
     demoScript
+    setupRustScript
     installSolanaScript
 
     # Development tools
@@ -328,6 +359,9 @@ in pkgs.mkShell {
   ];
 
   shellHook = ''
+    # Setup Rust toolchain
+    setup-rust
+
     # Install Solana CLI tools if not already installed
     install-solana
 
@@ -365,8 +399,16 @@ in pkgs.mkShell {
     echo "  validator_status     - Check validator status"
     echo "  validator_logs       - Show validator logs (tail -f)"
     echo ""
+
+    # Print Rust/Solana environment info
+    echo "Rust/Solana Environment:"
+    echo "  Rust version: $(rustc --version)"
+    echo "  Cargo version: $(cargo --version)"
+    echo "  Solana version: $(solana --version)"
+    echo ""
   '';
 
   # Environment variables
   SOLANA_VERSION = solanaVersion;
+  RUST_VERSION = rustVersion;
 }
