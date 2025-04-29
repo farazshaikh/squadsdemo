@@ -40,3 +40,5 @@ dist/
 build/
 lib/
 .multisig_address
+wallets/
+program_wallets/
