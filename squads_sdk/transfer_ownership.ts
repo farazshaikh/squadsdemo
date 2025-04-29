@@ -22,7 +22,7 @@ async function getProgramDataAddress(programId: PublicKey): Promise<PublicKey> {
   return programDataAddress;
 }
 
-async function verifyProgramAuthority(programId: PublicKey, expectedAuthority: PublicKey) {
+async function verifyProgramAuthority(programId: PublicKey, expectedAuthority: PublicKey | null = null): Promise<{ programDataAddress: PublicKey; currentAuthority: PublicKey }> {
   try {
     const programDataAddress = await getProgramDataAddress(programId);
     const accountInfo = await connection.getAccountInfo(programDataAddress);
@@ -34,12 +34,12 @@ async function verifyProgramAuthority(programId: PublicKey, expectedAuthority: P
     // The authority is at offset 13 in the program data account
     const currentAuthority = new PublicKey(accountInfo.data.slice(13, 45));
     
-    // Check if the upgrade authority matches
-    if (!currentAuthority.equals(expectedAuthority)) {
+    // Check if the upgrade authority matches expected (if provided)
+    if (expectedAuthority && !currentAuthority.equals(expectedAuthority)) {
       throw new Error("Program upgrade authority does not match expected authority");
     }
 
-    return programDataAddress;
+    return { programDataAddress, currentAuthority };
   } catch (error) {
     throw error;
   }
@@ -74,10 +74,10 @@ async function main() {
     console.log("Program ID:", programId.toBase58());
     
     // Get and verify program data address
-    const programDataAddress = await verifyProgramAuthority(programId, member1.publicKey);
+    const { programDataAddress, currentAuthority } = await verifyProgramAuthority(programId, member1.publicKey);
     console.log("Program Data Address:", programDataAddress.toBase58());
     console.log("Multisig Address:", multisigPda.toBase58());
-    console.log("Current Owner:", member1.publicKey.toBase58());
+    console.log("Current Owner:", currentAuthority.toBase58());
 
     // Create the instruction to set upgrade authority
     const instruction = {
@@ -188,7 +188,7 @@ async function main() {
     // Verify the transfer
     console.log("\n--- Verifying Transfer ---");
     await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for chain to settle
-    const finalAuthority = await verifyProgramAuthority(programId, multisigPda);
+    const { currentAuthority: finalAuthority } = await verifyProgramAuthority(programId);
     console.log("Final Authority:", finalAuthority.toBase58());
     console.log("Expected Authority (Multisig):", multisigPda.toBase58());
 
