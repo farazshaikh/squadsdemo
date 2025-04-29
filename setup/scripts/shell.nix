@@ -26,11 +26,12 @@ let
       echo "Creating demo wallets..."
       # Create wallets directory if it doesn't exist
       mkdir -p wallets
+      mkdir -p program_wallets
 
       # Remove existing keypair file if it exists
-      if [ ! -f "./wallets/solana_counter-keypair.json" ]; then
-        solana-keygen new --no-bip39-passphrase -o ./wallets/solana_counter-keypair.json
-        echo "Created solana_counter keypair: $(solana-keygen pubkey ./wallets/solana_counter-keypair.json)"
+      if [ ! -f "./program_wallets/solana_counter-keypair.json" ]; then
+        solana-keygen new --no-bip39-passphrase -o ./program_wallets/solana_counter-keypair.json
+        echo "Created solana_counter keypair: $(solana-keygen pubkey ./program_wallets/solana_counter-keypair.json)"
       fi
 
       # Create authority wallet (for program deployment)
@@ -218,6 +219,44 @@ let
       run_in_dir squads_sdk ts-node verify_multisig.ts
     }
 
+    # Deploy the contract using the authority wallet
+    deploy_contract() {
+      if [ ! -f "wallets/authority.json" ]; then
+        echo "Error: authority wallet not found. Run 'create_demo_wallets' first"
+        return 1
+      fi
+
+      echo "Deploying contract..."
+      solana program deploy ./solana_program/target/deploy/solana_counter.so \
+        --program-id ./program_wallets/solana_counter-keypair.json \
+        --keypair ./wallets/authority.json --upgrade-authority ./wallets/authority.json \
+        --url "http://127.0.0.1:8899"
+    }
+
+    # Transfer ownership of the contract to the multisig
+    transfer_contract_ownership() {
+      # Check if validator is running
+      if ! solana config get | grep -q "http://127.0.0.1:8899"; then
+        echo "Error: Local validator not running. Start it with 'start_validator'"
+        return 1
+      fi
+
+      # Check if we have the required wallets
+      for wallet in member{1,2,3}.json create_key.json; do
+        if [ ! -f "wallets/$wallet" ]; then
+          echo "Error: $wallet not found. Run 'create_demo_wallets' first"
+          return 1
+        fi
+        if [ ! -f "./.multisig_address" ]; then
+          echo "Error: multisig_address not found. Run 'create_multisig' first"
+          return 1
+        fi
+      done
+
+      echo "Creating multisig using Squads TypeScript SDK..."
+      run_in_dir squads_sdk ts-node transfer_ownership.ts
+    }
+
     # Export all functions so they're available when sourced
     export -f run_in_dir
     export -f create_demo_wallets
@@ -229,6 +268,8 @@ let
     export -f validator_logs
     export -f create_multisig
     export -f verify_multisig
+    export -f deploy_contract
+    export -f transfer_contract_ownership
 
     # Print usage if script is run directly
     if [[ "$0" == "$BASH_SOURCE" ]]; then
@@ -242,6 +283,7 @@ let
       echo "  fund_demo_wallets    - Airdrop SOL to all demo wallets"
       echo "  create_multisig      - Create 2/3 multisig using TypeScript SDK"
       echo "  verify_multisig      - Verify multisig address using TypeScript SDK"
+      echo "  deploy_contract      - Deploy the Solana program using authority wallet"
       echo ""
       echo "Validator management:"
       echo "  start_validator      - Start Solana validator with Squads program"

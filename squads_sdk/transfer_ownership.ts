@@ -66,7 +66,7 @@ async function main() {
 
     // Load program ID from deployed program keypair
     const programKeypairData = JSON.parse(
-      fs.readFileSync("../wallets/solana_counter-keypair.json", "utf8")
+      fs.readFileSync("../program_wallets/solana_counter-keypair.json", "utf8")
     );
     const programId = new PublicKey(programKeypairData.slice(32, 64));
 
