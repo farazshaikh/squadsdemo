@@ -1,124 +1,113 @@
-import { Connection, Keypair, PublicKey, TransactionInstruction, TransactionMessage } from "@solana/web3.js";
 import * as multisig from "@sqds/multisig";
-import * as fs from "fs";
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  TransactionMessage,
+} from "@solana/web3.js";
+import * as fs from 'fs';
+import * as path from 'path';
 
-async function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+const connection = new Connection("http://127.0.0.1:8899", "confirmed");
+
+// Helper to get wallet path in parent directory
+const getWalletPath = (filename: string) => path.join('..', 'wallets', filename);
+const getProgramPath = (filename: string) => path.join('..', 'program_wallets', filename);
+
+async function getProgramDataAddress(programId: PublicKey): Promise<PublicKey> {
+  const [programDataAddress] = PublicKey.findProgramAddressSync(
+    [programId.toBuffer()],
+    new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111')
+  );
+  return programDataAddress;
 }
 
-async function waitForValidator(connection: Connection, maxRetries = 5): Promise<boolean> {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      console.log("Checking validator connection...");
-      await connection.getLatestBlockhash();
-      console.log("Successfully connected to validator");
-      return true;
-    } catch (error) {
-      if (i === maxRetries - 1) {
-        console.error("Failed to connect to validator after", maxRetries, "attempts");
-        return false;
-      }
-      console.log("Validator not ready, retrying in 2 seconds...");
-      await sleep(2000);
+async function verifyProgramAuthority(programId: PublicKey, expectedAuthority: PublicKey) {
+  try {
+    const programDataAddress = await getProgramDataAddress(programId);
+    const accountInfo = await connection.getAccountInfo(programDataAddress);
+    
+    if (!accountInfo) {
+      throw new Error("Failed to fetch program data account info");
     }
-  }
-  return false;
-}
 
-async function verifyProgramAuthority(connection: Connection, programDataAddress: PublicKey): Promise<PublicKey> {
-  const programDataAccountInfo = await connection.getAccountInfo(programDataAddress);
-  if (!programDataAccountInfo) {
-    throw new Error("Failed to fetch program data account info");
-  }
+    // The authority is at offset 13 in the program data account
+    const currentAuthority = new PublicKey(accountInfo.data.slice(13, 45));
+    
+    // Check if the upgrade authority matches
+    if (!currentAuthority.equals(expectedAuthority)) {
+      throw new Error("Program upgrade authority does not match expected authority");
+    }
 
-  // Authority is at offset 13
-  return new PublicKey(programDataAccountInfo.data.slice(13, 45));
+    return programDataAddress;
+  } catch (error) {
+    throw error;
+  }
 }
 
 async function main() {
   try {
-    // Initialize connection with longer timeout
-    const connection = new Connection("http://127.0.0.1:8899", {
-      commitment: "confirmed",
-      confirmTransactionInitialTimeout: 60000 // 60 seconds timeout
-    });
-
-    // Wait for validator to be ready
-    if (!await waitForValidator(connection)) {
-      console.error("\nPlease ensure your local validator is running with:");
-      console.error("solana-test-validator --url m --clone-upgradeable-program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf -c BSTq9w3kZwNwpBXJEvTZz2G9ZTNyKBXvoSeXMvwb4cNZr -c Fy3YMJCvwbAXUgUM5b91ucUVA3jYzwWLHL3MwBqKsh8n");
-      process.exit(1);
-    }
+    console.log("Checking validator connection...");
+    await connection.getVersion();
+    console.log("Successfully connected to validator\n");
 
     // Load member1 keypair (current program owner)
     const member1 = Keypair.fromSecretKey(
-      Uint8Array.from(JSON.parse(fs.readFileSync("../wallets/member1.json", "utf8")))
+      new Uint8Array(JSON.parse(fs.readFileSync(getWalletPath('member1.json'), 'utf-8')))
     );
 
-    // Load member2 keypair
+    // Load member2 keypair for approval
     const member2 = Keypair.fromSecretKey(
-      Uint8Array.from(JSON.parse(fs.readFileSync("../wallets/member2.json", "utf8")))
+      new Uint8Array(JSON.parse(fs.readFileSync(getWalletPath('member2.json'), 'utf-8')))
     );
 
-    // Load multisig address
-    const multisigAddress = fs.readFileSync("../.multisig_address", "utf8").trim();
-    const multisigPDA = new PublicKey(multisigAddress);
+    // Get multisig address from file
+    const multisigAddress = fs.readFileSync(path.join('..', '.multisig_address'), 'utf-8').trim();
+    const multisigPda = new PublicKey(multisigAddress);
 
-    // Load program ID from deployed program keypair
-    const programKeypairData = JSON.parse(
-      fs.readFileSync("../program_wallets/solana_counter-keypair.json", "utf8")
-    );
-    const programId = new PublicKey(programKeypairData.slice(32, 64));
+    // Load program keypair and derive program ID
+    const programKeypairData = new Uint8Array(JSON.parse(fs.readFileSync(getProgramPath('solana_counter-keypair.json'), 'utf-8')));
+    const programKeypair = Keypair.fromSecretKey(programKeypairData);
+    const programId = programKeypair.publicKey;
 
-    // Known ProgramData address from solana program show
-    const programDataAddress = new PublicKey("4Cwm9SAvzfFgC7E2F6mm6QgRBn7HydiGtvChq9fPbNDh");
-
-    console.log("\n--- Initial State ---");
+    console.log("--- Initial State ---");
     console.log("Program ID:", programId.toBase58());
+    
+    // Get and verify program data address
+    const programDataAddress = await verifyProgramAuthority(programId, member1.publicKey);
     console.log("Program Data Address:", programDataAddress.toBase58());
-    console.log("Multisig Address:", multisigPDA.toBase58());
+    console.log("Multisig Address:", multisigPda.toBase58());
     console.log("Current Owner:", member1.publicKey.toBase58());
 
-    // Verify initial program authority
-    const initialAuthority = await verifyProgramAuthority(connection, programDataAddress);
-    console.log("Verified Initial Authority:", initialAuthority.toBase58());
-    if (initialAuthority.toBase58() !== member1.publicKey.toBase58()) {
-      throw new Error("Initial authority doesn't match expected owner");
-    }
-
-    // Get the vault PDA for the transaction
-    const [vaultPda] = multisig.getVaultPda({
-      multisigPda: multisigPDA,
-      index: 0
-    });
-    console.log("Vault PDA:", vaultPda.toBase58());
-
-    // Create the SetUpgradeAuthority instruction
-    const instruction = new TransactionInstruction({
-      programId: new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"),
+    // Create the instruction to set upgrade authority
+    const instruction = {
+      programId: new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111'),
       keys: [
         { pubkey: programDataAddress, isSigner: false, isWritable: true },
-        { pubkey: member1.publicKey, isSigner: true, isWritable: false }, // Current authority must sign
-        { pubkey: multisigPDA, isSigner: false, isWritable: false }  // New authority
+        { pubkey: member1.publicKey, isSigner: true, isWritable: false },
+        { pubkey: multisigPda, isSigner: false, isWritable: false }
       ],
       data: Buffer.concat([
         Buffer.from([4]), // SetAuthority instruction
-        Buffer.alloc(4), // Padding for alignment
-        multisigPDA.toBuffer() // New authority
+        Buffer.alloc(4),  // Padding for alignment
+        multisigPda.toBuffer() // New authority
       ])
-    });
+    };
 
-    // Create the transaction message
-    const transferMessage = new TransactionMessage({
-      payerKey: member1.publicKey, // member1 pays and signs
-      recentBlockhash: (await connection.getLatestBlockhash()).blockhash,
+    // Get latest blockhash
+    const { blockhash } = await connection.getLatestBlockhash();
+
+    // Create transaction message
+    const transactionMessage = new TransactionMessage({
+      payerKey: member1.publicKey,
+      recentBlockhash: blockhash,
       instructions: [instruction]
     });
 
     // Get the current multisig transaction index
     const multisigInfo = await multisig.accounts.Multisig.fromAccountAddress(
       connection,
-      multisigPDA
+      multisigPda
     );
 
     const currentTransactionIndex = Number(multisigInfo.transactionIndex);
@@ -128,80 +117,82 @@ async function main() {
     console.log("Current Transaction Index:", currentTransactionIndex);
     console.log("New Transaction Index:", newTransactionIndex.toString());
 
-    // Create and submit the proposal
-    const signature1 = await multisig.rpc.vaultTransactionCreate({
+    // Create the vault transaction
+    const createTxSignature = await multisig.rpc.vaultTransactionCreate({
       connection,
       feePayer: member1,
-      multisigPda: multisigPDA,
+      multisigPda: multisigPda,
       transactionIndex: newTransactionIndex,
       creator: member1.publicKey,
       vaultIndex: 0,
       ephemeralSigners: 0,
-      transactionMessage: transferMessage,
+      transactionMessage,
       memo: "Transfer program ownership to multisig"
     });
 
-    await connection.confirmTransaction(signature1);
-    console.log("Transaction created:", signature1);
+    await connection.confirmTransaction(createTxSignature);
+    console.log("Transaction created:", createTxSignature);
 
-    const signature2 = await multisig.rpc.proposalCreate({
+    // Create the proposal
+    const proposalSignature = await multisig.rpc.proposalCreate({
       connection,
       feePayer: member1,
-      multisigPda: multisigPDA,
+      multisigPda: multisigPda,
       transactionIndex: newTransactionIndex,
       creator: member1
     });
 
-    await connection.confirmTransaction(signature2);
-    console.log("Proposal created:", signature2);
+    await connection.confirmTransaction(proposalSignature);
+    console.log("Proposal created:", proposalSignature);
 
-    // Have member1 approve the transaction
+    // Have member1 approve
     console.log("\n--- Member Approvals ---");
-    console.log("Member 1 approving transaction...");
-    const approvalSig1 = await multisig.rpc.proposalApprove({
+    console.log("Member 1 approving...");
+    const approval1Signature = await multisig.rpc.proposalApprove({
       connection,
       feePayer: member1,
-      multisigPda: multisigPDA,
+      multisigPda: multisigPda,
       transactionIndex: newTransactionIndex,
       member: member1
     });
-    await connection.confirmTransaction(approvalSig1);
-    console.log("Member 1 approved:", approvalSig1);
+    await connection.confirmTransaction(approval1Signature);
+    console.log("Member 1 approved:", approval1Signature);
 
-    // Have member2 approve the transaction
-    console.log("\nMember 2 approving transaction...");
-    const approvalSig2 = await multisig.rpc.proposalApprove({
+    // Have member2 approve
+    console.log("\nMember 2 approving...");
+    const approval2Signature = await multisig.rpc.proposalApprove({
       connection,
-      feePayer: member1, // member1 pays fees but member2 signs
-      multisigPda: multisigPDA,
+      feePayer: member1,
+      multisigPda: multisigPda,
       transactionIndex: newTransactionIndex,
       member: member2
     });
-    await connection.confirmTransaction(approvalSig2);
-    console.log("Member 2 approved:", approvalSig2);
+    await connection.confirmTransaction(approval2Signature);
+    console.log("Member 2 approved:", approval2Signature);
 
     // Execute the transaction
     console.log("\n--- Executing Transaction ---");
-    const executeSig = await multisig.rpc.vaultTransactionExecute({
+    const executeTxSignature = await multisig.rpc.vaultTransactionExecute({
       connection,
       feePayer: member1,
-      multisigPda: multisigPDA,
+      multisigPda: multisigPda,
       transactionIndex: newTransactionIndex,
       member: member1.publicKey,
       signers: [member1],
       sendOptions: { skipPreflight: true }
     });
-    await connection.confirmTransaction(executeSig);
-    console.log("Transaction executed:", executeSig);
+
+    await connection.confirmTransaction(executeTxSignature);
+    console.log("Transaction executed:", executeTxSignature);
 
     // Verify the transfer
     console.log("\n--- Verifying Transfer ---");
-    await sleep(2000); // Wait for chain to settle
-    const finalAuthority = await verifyProgramAuthority(connection, programDataAddress);
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for chain to settle
+    const finalAuthority = await verifyProgramAuthority(programId, multisigPda);
     console.log("Final Authority:", finalAuthority.toBase58());
-    console.log("Expected Authority (Multisig):", multisigPDA.toBase58());
+    console.log("Expected Authority (Multisig):", multisigPda.toBase58());
 
-    if (finalAuthority.toBase58() === multisigPDA.toBase58()) {
+    if (finalAuthority.toBase58() === multisigPda.toBase58()) {
       console.log("\n✅ SUCCESS: Program ownership has been transferred to the multisig!");
     } else {
       console.log("\n❌ ERROR: Program ownership transfer failed!");
@@ -209,8 +200,7 @@ async function main() {
     }
 
   } catch (error) {
-    console.error("\n❌ Error:", error);
-    process.exit(1);
+    console.error("❌ Error:", error);
   }
 }
 

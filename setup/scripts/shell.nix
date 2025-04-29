@@ -219,17 +219,17 @@ let
       run_in_dir squads_sdk ts-node verify_multisig.ts
     }
 
-    # Deploy the contract using the authority wallet
+    # Deploy the contract using the member1 wallet who is also a part of the multisig
     deploy_contract() {
-      if [ ! -f "wallets/authority.json" ]; then
-        echo "Error: authority wallet not found. Run 'create_demo_wallets' first"
+      if [ ! -f "wallets/member1.json" ]; then
+        echo "Error: member1 wallet not found. Run 'create_demo_wallets' first"
         return 1
       fi
 
       echo "Deploying contract..."
       solana program deploy ./solana_program/target/deploy/solana_counter.so \
         --program-id ./program_wallets/solana_counter-keypair.json \
-        --keypair ./wallets/authority.json --upgrade-authority ./wallets/authority.json \
+        --keypair ./wallets/member1.json --upgrade-authority ./wallets/member1.json \
         --url "http://127.0.0.1:8899"
     }
 
