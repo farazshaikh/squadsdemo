@@ -6,6 +6,11 @@
 
 set -euo pipefail
 
+# build solana program that we deploy and demo tranfer of ownership
+pushd ./solana_program
+cargo build-sbf
+popd
+
 # Source the demo functions
 source demo-functions
 
