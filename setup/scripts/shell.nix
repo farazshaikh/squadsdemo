@@ -3,7 +3,7 @@
 
 let
   # Pin versions
-  solanaVersion = "1.18.0";
+  solanaVersion = "1.17.7";
   nodeVersion = "20.x";
 
   # Create the demo functions script that will be available in PATH
@@ -293,19 +293,26 @@ let
     fi
   '';
 
+  # Create a script to install Solana CLI tools
+  installSolanaScript = pkgs.writeScriptBin "install-solana" ''
+    #!/usr/bin/env bash
+    if [ ! -d "$HOME/.local/share/solana/install" ]; then
+      echo "Installing Solana CLI tools..."
+      sh -c "$(curl -sSfL https://release.solana.com/v${solanaVersion}/install)"
+    fi
+  '';
+
 in pkgs.mkShell {
   buildInputs = with pkgs; [
     # Demo script
     demoScript
+    installSolanaScript
 
-    # Rust toolchain for Solana program development
-    rustc
-    cargo
-    rustfmt
-    clippy
-    rust-analyzer
+    # Development tools
     pkg-config
-    libudev-zero
+    openssl
+    jq # For JSON processing in scripts
+    expect # For handling interactive prompts
 
     # Node.js environment for Squads SDK
     nodejs_20
@@ -314,12 +321,6 @@ in pkgs.mkShell {
     nodePackages_latest.ts-node
     nodePackages_latest.yarn
 
-    # Development tools
-    pkg-config
-    openssl
-    jq # For JSON processing in scripts
-    expect # For handling interactive prompts
-
     # Git and basic utils
     git
     curl
@@ -327,6 +328,9 @@ in pkgs.mkShell {
   ];
 
   shellHook = ''
+    # Install Solana CLI tools if not already installed
+    install-solana
+
     # Configure npm to use HTTPS
     npm config set registry https://registry.npmjs.org/
 
@@ -340,6 +344,7 @@ in pkgs.mkShell {
     source demo-functions
 
     # Set environment variables
+    export PATH=$HOME/.cargo/bin:$PATH  # Ensure rustup is available
     export PATH=$PATH:$HOME/.local/share/solana/install/active_release/bin
     export RUST_LOG=info
     export NODE_TLS_REJECT_UNAUTHORIZED=1

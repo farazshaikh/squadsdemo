@@ -1,3 +1,6 @@
+// DOCS COPIED VERBATIM INTO PROJECT FOR CURSOR AI TO READ AND LEARN !!
+// DOCS COPIED VERBATIM INTO PROJECT FOR CURSOR AI TO READ AND LEARN !!
+
     Introduction
 
 Quickstart
@@ -254,7 +257,7 @@ Now the most important part, actually executing that transaction we proposed.
     await connection.confirmTransaction(signature);
     console.log("Transaction executed: ", signature);
   });
-  
+
 // Don't forget to close the describe block here
 });
 
